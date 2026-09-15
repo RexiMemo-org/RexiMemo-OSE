@@ -1,4 +1,5 @@
 # RexiMemo: Open Source Edition
+[RexiMemo-OSE Discord Server](https://discord.gg/puZUDWgHDq)
 
 RexiMemo OSE is a deliberately reduced public edition of the RexiMemo Flipnote Hatena replacement server. It keeps the old proxy-style DSi connection model, a SQLite database, Flipnote browsing and browser playback, posting from Flipnote Studio, Creator's Rooms, stars, downloads, web text comments, and one-frame mini Flipnote comments.
 
