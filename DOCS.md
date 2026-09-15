@@ -59,7 +59,7 @@ Logs are written to `logs/reximemo.log` and mirrored to standard output unless a
 | `server.py`                                | Process entry point, port selection, optional feature flags, logging and the proxy-compatible Twisted Site.                                                                                                   |
 | `hatena.py`                                | Top-level HTTP resource router. It separates web traffic from DSi traffic, serves static CSS/images, loads the `hatenadir` resource tree and applies IP bans before either surface is reached.                |
 | `reximemo.py`                              | Shared DSi helpers: regional URLs, current IP/account lookup, DSi keyboard values, DSi dialog/forward headers, UGO menu construction, pagination, PPM first-frame rendering and mini-Flipnote NPF conversion. |
-| `webapp.py`                                | The normal browser client. It renders Home, Browse, About, optional Docs, Flipnote, Creator's Room, account and admin pages and exposes thumbnails/PPM downloads.                                             |
+| `webapp.py`                                | The normal browser client. It renders Home, Browse, About, optional Docs, Flipnote, Creator's Room, account and admin pages and exposes thumbnails, inline PPM playback media and counted PPM downloads.              |
 | `docs_page.py`                             | The text of this built-in manual. It is imported by the web client only when the documentation route is requested.                                                                                            |
 | `DB.py`                                    | Compatibility shim used by the older-style resource modules. It imports the single SQLite `Database` object and advertises `DB_type = "sqlite"`.                                                              |
 | `database/__init__.py`                     | SQLite schema, seed data and all database operations used by the OSE server.                                                                                                                                  |
@@ -74,7 +74,8 @@ Logs are written to `logs/reximemo.log` and mirrored to standard output unless a
 | `hatenadir/images/ds/account.ntft`         | 32×32 generated Account menu icon.                                                                                                                                                                            |
 | `hatenadir/images/ds/room.ntft`            | 32×32 generated Creator's Room menu icon.                                                                                                                                                                     |
 | `hatenadir/images/ds/placeholder.npf`      | 128×64 generated indexed placeholder banner retained for DSi asset testing/use.                                                                                                                               |
-| `web/static/site.css`                      | Complete browser stylesheet: colour variables, header/navigation, Flipnote grids, richer watch layout, comments, forms, admin tables, documentation layout and responsive breakpoints.                        |
+| `web/static/site.css`                      | Complete browser stylesheet: colour variables, header/navigation, Flipnote grids, watch/player layout, playback controls, comments, forms, admin tables, documentation layout and responsive breakpoints.           |
+| `web/static/flipnote-player.js`               | Small browser-side controller around flipnote.js. It loads the PPM, updates play/pause, seek, sound, loop and time controls, and restores the first-frame fallback if playback is unavailable.                         |
 | `web/static/RexiMemo_OSE_Logo.png`         | White RexiMemo logo with “Open Source Edition” included in the image itself.                                                                                                                                  |
 | `Hatenatools/__init__.py`                  | Convenience exports for `PPM`, `TMB`, `UGO` and `NTFT`.                                                                                                                                                       |
 | `Hatenatools/PPM.py`                       | Legacy Flipnote Studio PPM/TMB parser: metadata, thumbnail data, frame decoding, sound decoding and helper dump functions. OSE mainly uses `PPM.Read()`, `PPM.GetFrame()` and `TMB.Read()`.                   |
@@ -125,6 +126,7 @@ The browser client is server-rendered HTML in `webapp.py`. It has no JavaScript 
 | `/watch/<public id>/comment` | POST     | Adds a text comment using the current account or guest-IP Creator's Room.                                                           |
 | `/thumb/<public id>.png`     | GET      | Decodes the first PPM frame and returns a cached PNG thumbnail.                                                                     |
 | `/comment-thumb/<id>.png`    | GET      | Returns a first-frame PNG preview for a mini-Flipnote comment.                                                                      |
+| `/media/<public id>.ppm`     | GET      | Returns the original PPM inline for browser playback. It does not increment the download counter.                                                |
 | `/flipnote/<public id>.ppm`  | GET      | Increments downloads and returns the original PPM as an attachment.                                                                 |
 | `/creator/<public id>`       | GET      | Creator's Room with its Flipnote grid and account/guest ownership label.                                                            |
 | `/login`                     | GET/POST | Username/password sign-in. Successful POST writes an `ip_logins` row for the source IP.                                             |
@@ -140,7 +142,15 @@ The common page wrapper builds the header, navigation, account/admin actions and
 
 ## Flipnote view page
 
-The browser does not attempt to reproduce Flipnote Studio playback. A Flipnote view uses the first decoded frame as a large preview and presents the original `.ppm` as the downloadable playable file. This keeps the web client small and avoids adding a separate animation/audio player implementation.
+The watch page has browser playback as well as the server-generated first-frame fallback. `webapp.py` loads the pinned `flipnote.js` 6.3.1 browser build from jsDelivr, then loads the local `web/static/flipnote-player.js` controller. The controller creates a `flipnote.Player` at 320×240, asks it to load `/media/<public id>.ppm`, and lets flipnote.js decode the original PPM animation and audio in the browser. OSE does not pre-render a video, GIF or separate audio file.
+
+The player starts paused. Once flipnote.js reports that the note is ready, OSE hides the first-frame image and enables the large play button and the control row. The controls provide play/pause, a seek range, elapsed/total time, sound mute/unmute and loop on/off. Seeking uses flipnote.js's `startSeek()`, `seek()` and `endSeek()` calls so playback can resume cleanly after dragging. Clicking the rendered Flipnote toggles playback after the player has been started once.
+
+`/media/<public id>.ppm` is deliberately separate from `/flipnote/<public id>.ppm`. The media route returns the same on-disk PPM with `Content-Disposition: inline` and a one-hour public cache header, but it does not call `Database.AddDownload()`. The download route remains the explicit **Download PPM** action, increments the download counter and returns the file as an attachment. Opening or replaying a watch page therefore does not count as a file download.
+
+The `<img>` first-frame preview remains in the page before JavaScript runs. If the flipnote.js global is missing, the browser cannot construct its canvas/WebAudio player, the PPM cannot be parsed, or playback reports an error, `flipnote-player.js` leaves that preview visible, disables the player controls and shows a short playback-unavailable message. The rest of the watch page still works normally. This also gives the page a useful non-JavaScript fallback.
+
+> **Browser dependency/privacy notice.** The playback library is loaded from the jsDelivr CDN rather than copied into OSE. This keeps a large third-party build out of the repository, but it means a browser visiting a watch page makes a request to jsDelivr for `flipnote.min.js`. The PPM URL itself is same-origin and is not submitted to jsDelivr by OSE. An operator who does not want that third-party browser request should self-host the pinned flipnote.js build and change the script URL in `webapp.py`.
 
 Opening the page calls `Database.AddView()` before the Flipnote row is reloaded, so the displayed view count includes the current request. The page then loads up to 100 comments, the channel record, the Creator's Room record and a short list of other non-deleted Flipnotes from the same room.
 
@@ -272,7 +282,7 @@ SQLite holds metadata; PPM bytes are kept as files. A Flipnote path is construct
 
     database/Creators/<upper-case FSID>/<filename>.ppm
 
-The PPM filename stored in SQLite does not include `.ppm`. `GetFlipnotePPM()` reads the whole file. `GetFlipnoteTMB()` reads only the first `0x6A0` bytes for menu thumbnails.
+The PPM filename stored in SQLite does not include `.ppm`. `GetFlipnotePPM()` reads the whole file. `GetFlipnoteTMB()` reads only the first `0x6A0` bytes for menu thumbnails. Browser playback does not create another media file: `/media/<public id>.ppm` reads and returns this same PPM, while `/flipnote/<public id>.ppm` reads the same file through the counted download path.
 
 Mini comments use:
 
@@ -487,6 +497,6 @@ OSE is not the production RexiMemo service. The public repository does not conta
 
 > **Why the simplification exists.** This is a deliberate release-safety boundary. Security-sensitive production systems, secrets, trust checks and anti-abuse implementation details are excluded so publishing OSE is less likely to disclose or couple itself to RexiMemo's live infrastructure. The public replacements are intentionally smaller and easier to inspect. They exist to reduce the amount of sensitive production material exposed by an open-source release, not because a simpler login, ban or verification mechanism is inherently more secure.
 
-The remaining code should be read with that boundary in mind. An OSE Creator's Room is an account-or-IP ownership record; a login is an IP-to-account database row; a ban is an exact IP row; a web Flipnote preview is frame zero; and the server accepts the old proxy-style DSi HTTP path rather than reproducing the removed network/authentication stack.
+The remaining code should be read with that boundary in mind. An OSE Creator's Room is an account-or-IP ownership record; a login is an IP-to-account database row; a ban is an exact IP row; browser playback is a client-side flipnote.js player with a frame-zero fallback; and the server accepts the old proxy-style DSi HTTP path rather than reproducing the removed network/authentication stack.
 
 For public deployment work, the places most likely to need replacement or expansion are the password hashing, IP login identity, proxy/reverse-proxy IP handling, transport/authentication boundary, request-rate controls, database migrations, moderation controls, content limits/backups and operational logging. Those are outside the scope of this repository rather than hidden behind the Docs flag.

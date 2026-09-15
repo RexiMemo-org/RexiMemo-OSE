@@ -1,6 +1,6 @@
 # RexiMemo: Open Source Edition
 
-RexiMemo OSE is a deliberately reduced public edition of the RexiMemo Flipnote Hatena replacement server. It keeps the old proxy-style DSi connection model, a SQLite database, Flipnote browsing, posting from Flipnote Studio, Creator's Rooms, stars, downloads, web text comments, and one-frame mini Flipnote comments.
+RexiMemo OSE is a deliberately reduced public edition of the RexiMemo Flipnote Hatena replacement server. It keeps the old proxy-style DSi connection model, a SQLite database, Flipnote browsing and browser playback, posting from Flipnote Studio, Creator's Rooms, stars, downloads, web text comments, and one-frame mini Flipnote comments.
 
 This is not a source dump of the production service. Production-only security, privacy, identity, moderation, operations, migration and community systems have been removed before release so the public repository does not expose sensitive deployment logic, credentials, private integration code or production data-handling machinery. The trade-off is important: OSE is smaller and easier to inspect, but some of its remaining mechanisms are intentionally basic and are not suitable for a hardened public service without further work.
 
@@ -11,6 +11,7 @@ The server does not contain Nintendo NAS, DNS interception, SSLv3/TLS gateway co
 - SQLite storage instead of the old plaintext `flipnotes.dat` database.
 - The Flipnote Studio proxy resource tree and PPM/TMB/UGO/NTFT handling.
 - Browse pages on DSi and web, plus a small About page listing open-source credits.
+- In-browser PPM playback through flipnote.js, with play/pause, seeking, sound and loop controls plus a first-frame fallback.
 - Flipnote posting from Flipnote Studio. Web PPM upload is not included.
 - Creator's Rooms. A room is created automatically the first time an account or guest IP posts a Flipnote.
 - Optional username/password accounts.
@@ -62,6 +63,16 @@ password: alpine
 
 Change or remove that account before using the server anywhere outside a local test setup.
 
+## Web Flipnote playback
+
+The Flipnote view page uses **flipnote.js 6.3.1** for browser playback. The library is loaded from jsDelivr and `web/static/flipnote-player.js` provides the OSE controls and fallback behaviour. The player decodes the original PPM in the browser; OSE does not create a separate MP4, GIF or audio transcode.
+
+Playback requests the PPM from `/media/<public id>.ppm`. That route returns the original file inline and does **not** increment the Flipnote's download counter. The **Download PPM** button continues to use `/flipnote/<public id>.ppm`, which increments the download counter and serves the file as an attachment. This keeps ordinary watch-page playback separate from an explicit file download.
+
+If flipnote.js cannot load, the browser cannot create its playback canvas, or parsing/playback fails, the page keeps the server-generated first-frame PNG visible and disables the playback controls rather than replacing the rest of the watch page.
+
+The flipnote.js library is currently requested from a third-party CDN, so a browser opening a watch page makes a request to jsDelivr for that JavaScript file. The PPM itself is fetched from the OSE server and is not sent to jsDelivr by this implementation. If an installation should not make third-party asset requests, host the pinned flipnote.js file locally and change the script source in `webapp.py`.
+
 ## Accounts and Creator's Rooms
 
 Accounts are optional. Signing in associates the current source IP with an account. A Flipnote posted from that IP is attributed to the account and creates its Creator's Room if one does not exist yet. If no account is signed in, OSE creates a guest Creator's Room for the posting IP and uses the author name embedded in the Flipnote where available.
@@ -98,6 +109,7 @@ RexiMemo OSE builds on earlier Flipnote preservation and replacement-server work
 - **[Twisted](https://twisted.org/)** — MIT. The networking and HTTP framework used by the server.
 - **[NumPy](https://numpy.org/)** — BSD-3-Clause. Used by the legacy Flipnote media and format tools.
 - **[Pillow](https://python-pillow.github.io/)** — MIT-CMU. Used for image decoding and thumbnail generation.
+- **[flipnote.js](https://github.com/jaames/flipnote.js)** — MIT, by James Daniel. Used for PPM animation and audio playback in the browser.
 
 ### Acknowledgements
 
