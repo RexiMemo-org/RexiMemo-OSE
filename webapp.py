@@ -119,6 +119,7 @@ class WebRoot(resource.Resource):
                 '<div class="credit-list">'
                 '<div class="credit-item"><strong><a href="https://github.com/pbsds/hatena-server">pbsds / hatena-server</a></strong><small>AGPL-3.0</small><p>The original open-source Flipnote Hatena replacement server and the main foundation for the older public server code.</p></div>'
                 '<div class="credit-item"><strong><a href="https://github.com/pbsds/Hatenatools">Hatenatools</a></strong><small>AGPL-3.0 · pbsds and contributors</small><p>Utilities for PPM/TMB, UGO, NTFT and related Nintendo DSi and Flipnote formats. The bundled copy has been ported to Python 3.</p></div>'
+                '<div class="credit-item"><strong><a href="https://flipnote.js.org/">flipnote.js</a></strong><small>MIT · James Daniel</small><p>Browser-side PPM decoding, animation rendering and audio playback on Flipnote pages.</p></div>'
                 '<div class="credit-item"><strong><a href="https://www.python.org/">Python</a></strong><small>PSF License</small><p>The language and runtime used by RexiMemo OSE.</p></div>'
                 '<div class="credit-item"><strong><a href="https://twisted.org/">Twisted</a></strong><small>MIT</small><p>The networking and HTTP framework used by the server.</p></div>'
                 '<div class="credit-item"><strong><a href="https://numpy.org/">NumPy</a></strong><small>BSD-3-Clause</small><p>Used by the legacy Flipnote media and format tools.</p></div>'
@@ -180,6 +181,16 @@ class WebRoot(resource.Resource):
             request.setHeader(b"Cache-Control", b"public, max-age=3600")
             return data
 
+        if path.startswith("/media/") and path.endswith(".ppm"):
+            public_id = path[len("/media/"):-4]
+            fn = Database.get_flipnote_by_public_id(public_id)
+            if not fn:
+                request.setResponseCode(404); return b""
+            request.setHeader(b"content-type", b"application/octet-stream")
+            request.setHeader(b"content-disposition", b"inline")
+            request.setHeader(b"Cache-Control", b"public, max-age=3600")
+            return Database.GetFlipnotePPM(fn["creator_fsid"], fn["filename"])
+
         if path.startswith("/flipnote/") and path.endswith(".ppm"):
             public_id = path[len("/flipnote/"):-4]
             fn = Database.get_flipnote_by_public_id(public_id)
@@ -232,9 +243,19 @@ class WebRoot(resource.Resource):
                 '<p>by <a href="/creator/%(creator)s">%(creator_name)s</a> <span>·</span> %(posted)s</p></div>'
                 '<a class="button subtle" href="/creator/%(creator)s">Creator\'s Room</a></header>'
                 '<div class="watch-layout watch-layout-rich"><section class="player-card watch-preview">'
-                '<div class="preview-bar"><span>First-frame preview</span><span>PPM</span></div>'
-                '<div class="preview-stage"><img src="/thumb/%(public)s.png" alt="First frame of %(title_attr)s"></div>'
-                '<div class="preview-footer"><span>The original Flipnote is kept as a PPM file.</span><a href="/flipnote/%(public)s.ppm">Download original</a></div>'
+                '<div class="preview-bar"><span>Flipnote player</span><span>PPM · flipnote.js</span></div>'
+                '<div class="preview-stage flipnote-stage" data-flipnote-player data-source="/media/%(public)s.ppm">'
+                '<div class="flipnote-player-canvas" aria-label="Flipnote playback canvas"></div>'
+                '<img class="flipnote-player-fallback" data-fallback-label="First-frame preview" src="/thumb/%(public)s.png" alt="First frame of %(title_attr)s">'
+                '<button class="flipnote-big-play" type="button" data-action="big-play" aria-label="Play Flipnote" hidden>▶</button>'
+                '<div class="flipnote-player-status" data-display="status" role="status">Loading Flipnote…</div></div>'
+                '<div class="flipnote-controls" aria-label="Flipnote playback controls">'
+                '<button class="flipnote-control-button play-control" type="button" data-action="play" disabled>Play</button>'
+                '<input class="flipnote-progress" data-control="progress" type="range" min="0" max="1000" value="0" step="1" aria-label="Playback position" disabled>'
+                '<span class="flipnote-time" data-display="time">0:00 / 0:00</span>'
+                '<button class="flipnote-control-button" type="button" data-action="mute" disabled>Sound</button>'
+                '<button class="flipnote-control-button" type="button" data-action="loop" aria-pressed="false" disabled>Loop</button></div>'
+                '<div class="preview-footer"><span>Played in-browser with flipnote.js.</span><a href="/flipnote/%(public)s.ppm">Download original</a></div>'
                 '</section><aside class="detail-panel watch-details"><div class="creator-summary"><span class="creator-label">Creator</span>'
                 '<a class="creator-name" href="/creator/%(creator)s">%(creator_name)s</a><span>%(identity)s</span></div>'
                 '<div class="watch-stat-grid"><div><strong>%(stars)s</strong><span>Stars</span></div><div><strong>%(views)s</strong><span>Views</span></div>'
@@ -246,6 +267,8 @@ class WebRoot(resource.Resource):
                 '<section class="comments-panel section"><div class="panel-title comments-title"><span>Comments</span><span>%(comment_count)s</span></div>'
                 '<div class="comments-body">%(form)s<div class="comments">%(comments)s</div></div></section>'
                 '%(related_section)s'
+                '<script src="https://cdn.jsdelivr.net/npm/flipnote.js@6.3.1/dist/flipnote.min.js"></script>'
+                '<script src="/static/flipnote-player.js"></script>'
             ) % {
                 "public": html.escape(fn["public_id"], quote=True),
                 "title": html.escape(fn.get("title") or "Untitled Flipnote"),
